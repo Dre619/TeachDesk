@@ -412,6 +412,109 @@
             font-size: 11px;
             font-style: italic;
         }
+
+        /* ════════════════════════════════
+           CLASSIC LAYOUT
+        ════════════════════════════════ */
+        .classic-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            border: 2px solid #1e293b;
+        }
+        .classic-table thead tr {
+            background: #1e293b;
+        }
+        .classic-table th {
+            color: #fff;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 7px 8px;
+            text-align: center;
+            border: 1px solid #334155;
+        }
+        .classic-table th.left { text-align: left; }
+        .classic-table td {
+            padding: 6px 8px;
+            font-size: 10px;
+            border: 1px solid #e2e8f0;
+            vertical-align: middle;
+            text-align: center;
+        }
+        .classic-table td.left {
+            text-align: left;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .classic-table td.muted {
+            color: #94a3b8;
+            font-size: 9px;
+        }
+        .classic-table tbody tr:nth-child(even) td { background: #f8fafc; }
+        .classic-table tbody tr:nth-child(odd)  td { background: #fff; }
+        .classic-table .classic-summary td {
+            background: #1e293b !important;
+            color: #fff;
+            font-weight: 800;
+            font-size: 10px;
+            border-color: #334155;
+        }
+        .classic-table .classic-type-subheader td {
+            background: #f1f5f9 !important;
+            color: #475569;
+            font-size: 8.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 4px 8px;
+            border-top: 2px solid #e2e8f0;
+            text-align: left;
+        }
+
+        /* ════════════════════════════════
+           COMPACT LAYOUT
+        ════════════════════════════════ */
+        .compact-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+        }
+        .compact-table thead tr {
+            background: #334155;
+        }
+        .compact-table th {
+            color: #fff;
+            font-size: 8.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 6px 8px;
+            text-align: center;
+        }
+        .compact-table th.left { text-align: left; }
+        .compact-table td {
+            padding: 5px 8px;
+            font-size: 10px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+            text-align: center;
+        }
+        .compact-table td.left {
+            text-align: left;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .compact-table td.muted { color: #94a3b8; font-size: 9px; }
+        .compact-table tbody tr:nth-child(even) td { background: #f8fafc; }
+        .compact-table .compact-summary td {
+            background: #f1f5f9 !important;
+            font-weight: 800;
+            color: #1e293b;
+            border-top: 2px solid #e2e8f0;
+            font-size: 10px;
+        }
     </style>
 </head>
 <body>
@@ -472,7 +575,151 @@
 
     @if (empty($bySubject))
         <div class="no-data">No assessments recorded for this term.</div>
+
+    @elseif (($settings->layout ?? 'modern') === 'classic')
+
+        {{-- ══════════════════════════════════════════════════════════
+             CLASSIC LAYOUT — traditional report card table
+             One row per subject; separate columns for each assessment
+             type average (CA, Test, Exam, etc.)
+        ══════════════════════════════════════════════════════════ --}}
+        @php
+            $typeLabels = [
+                'ca'         => 'CA',
+                'test'       => 'Test',
+                'exam'       => 'Exam',
+                'assignment' => 'Assignment',
+                'other'      => 'Other',
+            ];
+            $typeOrder = ['ca', 'test', 'exam', 'assignment', 'other'];
+            $allTypes  = collect($bySubject)
+                ->flatMap(fn ($s) => array_keys($s['byType']))
+                ->unique()
+                ->sortBy(fn ($t) => array_search($t, $typeOrder) !== false ? array_search($t, $typeOrder) : 99)
+                ->values()
+                ->toArray();
+            $barColors = ['A' => '#16a34a', 'B' => '#0d9488', 'C' => '#2563eb', 'D' => '#ca8a04', 'E' => '#ea580c', 'F' => '#dc2626'];
+            $gradeRemarks = ['A' => 'Excellent', 'B' => 'Very Good', 'C' => 'Good', 'D' => 'Satisfactory', 'E' => 'Below Average', 'F' => 'Needs Improvement'];
+        @endphp
+
+        <table class="classic-table">
+            <thead>
+                <tr>
+                    <th style="width:20px;">#</th>
+                    <th class="left">Subject</th>
+                    @foreach ($allTypes as $t)
+                        <th>{{ $typeLabels[$t] ?? ucfirst($t) }} %</th>
+                    @endforeach
+                    <th>Avg %</th>
+                    <th>Grade</th>
+                    <th class="left" style="min-width:55px;">Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($bySubject as $subject => $subjectData)
+                <tr>
+                    <td class="muted" style="text-align:center;">{{ $loop->iteration }}</td>
+                    <td class="left">{{ $subject }}</td>
+                    @foreach ($allTypes as $t)
+                        <td>
+                            @if (isset($subjectData['byType'][$t]))
+                                <span style="font-weight:600;color:{{ $barColors[$subjectData['byType'][$t]['grade']] ?? '#64748b' }};">
+                                    {{ $subjectData['byType'][$t]['average'] }}
+                                </span>
+                            @else
+                                <span style="color:#cbd5e1;">—</span>
+                            @endif
+                        </td>
+                    @endforeach
+                    <td style="font-weight:800;color:{{ $barColors[$subjectData['overallGrade']] ?? '#64748b' }};">
+                        {{ $subjectData['average'] }}%
+                    </td>
+                    <td style="text-align:center;">
+                        <span class="grade-badge grade-{{ $subjectData['overallGrade'] }}">{{ $subjectData['overallGrade'] }}</span>
+                    </td>
+                    <td class="left" style="font-size:9px;color:#64748b;">
+                        {{ $gradeRemarks[$subjectData['overallGrade']] ?? '—' }}
+                    </td>
+                </tr>
+                @endforeach
+
+                {{-- Overall summary row --}}
+                <tr class="classic-summary">
+                    <td></td>
+                    <td class="left">Class Average</td>
+                    @foreach ($allTypes as $t)
+                        @php
+                            $typeAvgs = collect($bySubject)
+                                ->filter(fn ($s) => isset($s['byType'][$t]))
+                                ->map(fn ($s) => $s['byType'][$t]['average']);
+                        @endphp
+                        <td>{{ $typeAvgs->isNotEmpty() ? round($typeAvgs->avg(), 1) : '—' }}</td>
+                    @endforeach
+                    <td style="font-weight:900;">{{ $overallAvg }}%</td>
+                    <td style="text-align:center;">
+                        <span class="grade-badge" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);">{{ $overallGrade }}</span>
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+
+    @elseif (($settings->layout ?? 'modern') === 'compact')
+
+        {{-- ══════════════════════════════════════════════════════════
+             COMPACT LAYOUT — minimal subject / grade table
+             Best for classes with many subjects or limited space.
+        ══════════════════════════════════════════════════════════ --}}
+        @php
+            $barColors   = ['A' => '#16a34a', 'B' => '#0d9488', 'C' => '#2563eb', 'D' => '#ca8a04', 'E' => '#ea580c', 'F' => '#dc2626'];
+            $gradeRemarks = ['A' => 'Excellent', 'B' => 'Very Good', 'C' => 'Good', 'D' => 'Satisfactory', 'E' => 'Below Average', 'F' => 'Needs Improvement'];
+        @endphp
+
+        <table class="compact-table">
+            <thead>
+                <tr>
+                    <th style="width:18px;">#</th>
+                    <th class="left">Subject</th>
+                    <th style="width:50px;">Avg %</th>
+                    <th style="width:42px;">Grade</th>
+                    <th class="left">Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($bySubject as $subject => $subjectData)
+                <tr>
+                    <td class="muted" style="text-align:center;">{{ $loop->iteration }}</td>
+                    <td class="left">{{ $subject }}</td>
+                    <td style="font-weight:700;color:{{ $barColors[$subjectData['overallGrade']] ?? '#64748b' }};">
+                        {{ $subjectData['average'] }}%
+                    </td>
+                    <td style="text-align:center;">
+                        <span class="grade-badge grade-{{ $subjectData['overallGrade'] }}">{{ $subjectData['overallGrade'] }}</span>
+                    </td>
+                    <td class="left" style="font-size:9px;color:#64748b;">
+                        {{ $gradeRemarks[$subjectData['overallGrade']] ?? '—' }}
+                    </td>
+                </tr>
+                @endforeach
+
+                <tr class="compact-summary">
+                    <td></td>
+                    <td class="left">Overall Average</td>
+                    <td style="font-weight:900;">{{ $overallAvg }}%</td>
+                    <td style="text-align:center;">
+                        <span class="grade-badge grade-{{ $overallGrade }}">{{ $overallGrade }}</span>
+                    </td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+
     @else
+
+        {{-- ══════════════════════════════════════════════════════════
+             MODERN LAYOUT — detailed breakdown with progress bars
+             Subject → type → individual entries → averages
+        ══════════════════════════════════════════════════════════ --}}
         @php
             $typeLabels = [
                 'test'       => 'Class Test',
@@ -503,7 +750,6 @@
             <tbody>
                 @foreach ($bySubject as $subject => $subjectData)
 
-                    {{-- Subject heading --}}
                     <tr class="subject-header">
                         <td colspan="7">
                             {{ $subject }}
@@ -511,7 +757,6 @@
                         </td>
                     </tr>
 
-                    {{-- Types within this subject --}}
                     @foreach ($subjectData['byType'] as $type => $data)
 
                         <tr class="type-header">
@@ -562,7 +807,6 @@
 
                     @endforeach
 
-                    {{-- Subject overall average --}}
                     <tr class="subject-summary">
                         <td style="padding-left:14px;">{{ $subject }} — Overall Average</td>
                         <td class="center">—</td>
@@ -585,6 +829,7 @@
                 @endforeach
             </tbody>
         </table>
+
     @endif
 
     {{-- ── OVERALL RESULT ── --}}

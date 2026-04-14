@@ -7,6 +7,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ReportCardSetting extends Model
 {
+    public const LAYOUTS = [
+        'modern' => 'Modern',
+        'classic' => 'Classic',
+        'compact' => 'Compact',
+    ];
+
     protected $fillable = [
         'user_id',
         'class_id',
@@ -19,15 +25,16 @@ class ReportCardSetting extends Model
         'show_grading_scale',
         'show_signatures',
         'footer_note',
+        'layout',
     ];
 
     protected function casts(): array
     {
         return [
-            'show_attendance'    => 'boolean',
-            'show_conduct'       => 'boolean',
+            'show_attendance' => 'boolean',
+            'show_conduct' => 'boolean',
             'show_grading_scale' => 'boolean',
-            'show_signatures'    => 'boolean',
+            'show_signatures' => 'boolean',
         ];
     }
 
@@ -55,17 +62,18 @@ class ReportCardSetting extends Model
     public static function defaults(int $userId): array
     {
         return [
-            'user_id'            => $userId,
-            'class_id'           => null,
-            'school_name'        => 'Student Report Card',
-            'school_motto'       => null,
-            'school_logo'        => null,
-            'accent_color'       => '#4f46e5',
-            'show_attendance'    => true,
-            'show_conduct'       => true,
+            'user_id' => $userId,
+            'class_id' => null,
+            'school_name' => 'Student Report Card',
+            'school_motto' => null,
+            'school_logo' => null,
+            'accent_color' => '#4f46e5',
+            'show_attendance' => true,
+            'show_conduct' => true,
             'show_grading_scale' => true,
-            'show_signatures'    => true,
-            'footer_note'        => null,
+            'show_signatures' => true,
+            'footer_note' => null,
+            'layout' => 'modern',
         ];
     }
 }

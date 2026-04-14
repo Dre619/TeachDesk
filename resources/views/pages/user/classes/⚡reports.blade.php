@@ -1,24 +1,21 @@
 <?php
 
+use App\Actions\BuildReportData;
 use App\Jobs\GenerateBulkReports;
-use App\Models\Assessment;
-use App\Models\Attendance;
 use App\Models\ClassRoom;
 use App\Models\Report;
-use App\Models\ReportCardSetting;
 use App\Models\Student;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
-use Livewire\WithFileUploads;
 use Spatie\Browsershot\Browsershot;
 use WireUi\Traits\WireUiActions;
 use App\Livewire\Concerns\HasClassRoomRole;
 
 new class extends Component
 {
-    use WireUiActions, HasClassRoomRole, WithFileUploads;
+    use WireUiActions, HasClassRoomRole;
 
     // ──────────────────────────────────────────
     // Props
@@ -30,11 +27,10 @@ new class extends Component
     // Modal flags
     // ──────────────────────────────────────────
 
-    public bool $showPreviewModal  = false;
-    public bool $showCommentModal  = false;
-    public bool $showBulkModal     = false;
-    public bool $showDeleteModal   = false;
-    public bool $showSettingsModal = false;
+    public bool $showPreviewModal = false;
+    public bool $showCommentModal = false;
+    public bool $showBulkModal    = false;
+    public bool $showDeleteModal  = false;
 
     // ──────────────────────────────────────────
     // Term / year selection (shared header)
@@ -47,8 +43,7 @@ new class extends Component
     // Preview state
     // ──────────────────────────────────────────
 
-    public ?int  $previewStudentId = null;
-    public array $previewData      = [];
+    public ?int $previewStudentId = null;
 
     // ──────────────────────────────────────────
     // Comment / conduct editing (per student)
@@ -58,21 +53,6 @@ new class extends Component
     public string $conductGrade         = '';
     public string $formTeacherComment   = '';
     public string $headTeacherComment   = '';
-
-    // ──────────────────────────────────────────
-    // Report card settings (per class)
-    // ──────────────────────────────────────────
-
-    public string $settingSchoolName      = 'Student Report Card';
-    public string $settingSchoolMotto     = '';
-    public string $settingAccentColor     = '#4f46e5';
-    public ?string $settingLogoPath       = null;   // stored path
-    public $settingLogo                   = null;   // temp upload
-    public bool   $settingShowAttendance  = true;
-    public bool   $settingShowConduct     = true;
-    public bool   $settingShowGradingScale= true;
-    public bool   $settingShowSignatures  = true;
-    public string $settingFooterNote      = '';
 
     // ──────────────────────────────────────────
     // Delete state
@@ -104,21 +84,6 @@ new class extends Component
         $this->classId      = $classId;
         $this->selectedYear = (int) date('Y');
         $this->resolveRole($class);
-        $this->loadSettings();
-    }
-
-    private function loadSettings(): void
-    {
-        $s = ReportCardSetting::forTeacherAndClass(Auth::id(), $this->classId);
-        $this->settingSchoolName       = $s->school_name       ?? 'Student Report Card';
-        $this->settingSchoolMotto      = $s->school_motto      ?? '';
-        $this->settingAccentColor      = $s->accent_color      ?? '#4f46e5';
-        $this->settingLogoPath         = $s->school_logo       ?? null;
-        $this->settingShowAttendance   = (bool) ($s->show_attendance   ?? true);
-        $this->settingShowConduct      = (bool) ($s->show_conduct      ?? true);
-        $this->settingShowGradingScale = (bool) ($s->show_grading_scale ?? true);
-        $this->settingShowSignatures   = (bool) ($s->show_signatures   ?? true);
-        $this->settingFooterNote       = $s->footer_note       ?? '';
     }
 
     // ──────────────────────────────────────────
@@ -199,7 +164,6 @@ new class extends Component
     public function openPreview(int $studentId): void
     {
         $this->previewStudentId = $studentId;
-        $this->previewData      = $this->buildReportData($studentId);
         $this->showPreviewModal = true;
     }
 
@@ -242,74 +206,6 @@ new class extends Component
         unset($this->reports, $this->rows);
 
         $this->notification()->success(title: 'Saved!', description: 'Comment & conduct updated.');
-    }
-
-    // ──────────────────────────────────────────
-    // Report card settings modal
-    // ──────────────────────────────────────────
-
-    public function openSettingsModal(): void
-    {
-        $this->showSettingsModal = true;
-    }
-
-    public function saveSettings(): void
-    {
-        $this->validate([
-            'settingSchoolName'       => 'required|string|max:120',
-            'settingSchoolMotto'      => 'nullable|string|max:200',
-            'settingAccentColor'      => ['required', 'regex:/^#[0-9a-fA-F]{6}$/'],
-            'settingShowAttendance'   => 'boolean',
-            'settingShowConduct'      => 'boolean',
-            'settingShowGradingScale' => 'boolean',
-            'settingShowSignatures'   => 'boolean',
-            'settingFooterNote'       => 'nullable|string|max:200',
-            'settingLogo'             => 'nullable|image|max:2048',
-        ]);
-
-        // Handle logo upload
-        $logoPath = $this->settingLogoPath;
-        if ($this->settingLogo) {
-            // Delete old logo if it exists
-            if ($logoPath && Storage::disk('public')->exists($logoPath)) {
-                Storage::disk('public')->delete($logoPath);
-            }
-            $logoPath = $this->settingLogo->store('logos', 'public');
-            $this->settingLogoPath = $logoPath;
-            $this->settingLogo     = null;
-        }
-
-        ReportCardSetting::updateOrCreate(
-            ['user_id' => Auth::id(), 'class_id' => $this->classId],
-            [
-                'school_name'        => $this->settingSchoolName,
-                'school_motto'       => $this->settingSchoolMotto ?: null,
-                'school_logo'        => $logoPath,
-                'accent_color'       => $this->settingAccentColor,
-                'show_attendance'    => $this->settingShowAttendance,
-                'show_conduct'       => $this->settingShowConduct,
-                'show_grading_scale' => $this->settingShowGradingScale,
-                'show_signatures'    => $this->settingShowSignatures,
-                'footer_note'        => $this->settingFooterNote ?: null,
-            ]
-        );
-
-        $this->showSettingsModal = false;
-        $this->notification()->success(
-            title:       'Settings saved!',
-            description: 'Report card template updated. Regenerate PDFs to apply.',
-        );
-    }
-
-    public function removeLogo(): void
-    {
-        $s = ReportCardSetting::where('user_id', Auth::id())->where('class_id', $this->classId)->first();
-        if ($s?->school_logo && Storage::disk('public')->exists($s->school_logo)) {
-            Storage::disk('public')->delete($s->school_logo);
-        }
-        $s?->update(['school_logo' => null]);
-        $this->settingLogoPath = null;
-        $this->notification()->success(title: 'Logo removed', description: 'Report card logo has been cleared.');
     }
 
     // ──────────────────────────────────────────
@@ -437,18 +333,12 @@ new class extends Component
 
     private function doGenerate(int $studentId): void
     {
-        $data   = $this->buildReportData($studentId);
-        $report = Report::findOrInitialise(
-            $studentId,
-            Auth::id(),
-            $this->selectedTerm,
-            $this->selectedYear,
-        );
+        // Ensure the report record exists before building data (so conduct/comments are loaded)
+        $report = Report::findOrInitialise($studentId, Auth::id(), $this->selectedTerm, $this->selectedYear);
 
-        // Merge per-student fields from DB record
-        $data['conduct_grade']        = $report->conduct_grade;
-        $data['form_teacher_comment'] = $report->form_teacher_comment;
-        $data['head_teacher_comment'] = $report->head_teacher_comment;
+        $data = (new BuildReportData)->execute(
+            $this->classId, $studentId, $this->selectedTerm, $this->selectedYear, Auth::id()
+        );
 
         $html     = view('reports.report-card', $data)->render();
         $path     = Report::buildPdfPath($studentId, $this->selectedTerm, $this->selectedYear);
@@ -464,89 +354,6 @@ new class extends Component
             ->save($fullPath);
 
         $report->markAsGenerated($path);
-    }
-
-    /**
-     * Builds all data needed to render the report card template.
-     * Returns $bySubject keyed by subject name, each containing byType breakdown.
-     */
-    private function buildReportData(int $studentId): array
-    {
-        $student   = Student::with('classRoom')->findOrFail($studentId);
-        $classroom = $this->classroom;
-
-        $assessments = Assessment::with('student')
-            ->forClass($this->classId)
-            ->forStudent($studentId)
-            ->forTerm($this->selectedTerm, $this->selectedYear)
-            ->get();
-
-        // Group by subject → then by type within each subject
-        $bySubject = $assessments->groupBy('subject')->map(function ($subjectRows, $subject) {
-            $byType = $subjectRows->groupBy('type')->map(function ($rows) {
-                $avg   = round($rows->avg('percentage'), 1);
-                $grade = (new Assessment(['score' => $avg, 'max_score' => 100]))->calculateGrade();
-                return [
-                    'scores'  => $rows->map(fn ($a) => [
-                        'score'      => $a->score,
-                        'max_score'  => $a->max_score,
-                        'percentage' => $a->percentage,
-                        'grade'      => $a->grade,
-                        'remarks'    => $a->remarks,
-                    ])->values()->toArray(),
-                    'average' => $avg,
-                    'grade'   => $grade,
-                    'count'   => $rows->count(),
-                ];
-            })->toArray();
-
-            $subjectAvg   = round($subjectRows->avg('percentage'), 1);
-            $subjectGrade = (new Assessment(['score' => $subjectAvg, 'max_score' => 100]))->calculateGrade();
-
-            return [
-                'byType'       => $byType,
-                'average'      => $subjectAvg,
-                'overallGrade' => $subjectGrade,
-                'count'        => $subjectRows->count(),
-            ];
-        })->toArray();
-
-        // Overall across all subjects
-        $overallAvg   = $assessments->isNotEmpty() ? round($assessments->avg('percentage'), 1) : null;
-        $overallGrade = $overallAvg !== null
-            ? (new Assessment(['score' => $overallAvg, 'max_score' => 100]))->calculateGrade()
-            : null;
-
-        // Attendance for the academic year
-        $attendanceYear = Attendance::forClass($this->classId)
-            ->where('student_id', $studentId)
-            ->whereYear('date', $this->selectedYear)
-            ->get();
-
-        $totalDays      = $attendanceYear->count();
-        $presentDays    = $attendanceYear->filter(fn ($a) => $a->wasPresent())->count();
-        $absentDays     = $attendanceYear->where('status', 'absent')->count();
-        $lateDays       = $attendanceYear->where('status', 'late')->count();
-        $attendanceRate = $totalDays > 0 ? round(($presentDays / $totalDays) * 100, 1) : null;
-
-        $gradingScale = Assessment::GRADING_SCALE;
-
-        // Load report card settings for this class
-        $settings = ReportCardSetting::forTeacherAndClass(Auth::id(), $this->classId);
-
-        return compact(
-            'student', 'classroom', 'bySubject',
-            'overallAvg', 'overallGrade',
-            'totalDays', 'presentDays', 'absentDays', 'lateDays', 'attendanceRate',
-            'gradingScale', 'settings',
-        ) + [
-            'term'                => $this->selectedTerm,
-            'academic_year'       => $this->selectedYear,
-            'conduct_grade'       => null,
-            'form_teacher_comment'=> null,
-            'head_teacher_comment'=> null,
-            'generated_at'        => now(),
-        ];
     }
 };
 ?>
@@ -572,13 +379,11 @@ new class extends Component
                     </p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <x-button
-                        wire:click="openSettingsModal"
-                        icon="adjustments-horizontal"
-                        label="Customise"
-                        outline
-                        class="w-full sm:w-auto"
-                    />
+                    <a href="{{ route('user.report-settings', $classId) }}"
+                       class="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 hover:border-indigo-400 transition-colors">
+                        <x-icon name="adjustments-horizontal" class="w-4 h-4" />
+                        Customise
+                    </a>
                     <x-button
                         wire:click="openBulkModal"
                         icon="document-duplicate"
@@ -802,157 +607,57 @@ new class extends Component
 
 
     {{-- ══════════════════════════════════════════════════════════
-         PREVIEW MODAL
+         PREVIEW MODAL — iframe renders the actual report card
+         template, so it automatically matches any layout setting.
     ══════════════════════════════════════════════════════════ --}}
     <x-modal wire:model.live="showPreviewModal" title="Report Card Preview" blur width="3xl">
         <x-card class="relative">
-            @if (! empty($previewData))
-        @php
-            $pd = $previewData;
-            $gradeColors = [
-                'A'=>'bg-emerald-100 text-emerald-800','B'=>'bg-teal-100 text-teal-800',
-                'C'=>'bg-blue-100 text-blue-800','D'=>'bg-amber-100 text-amber-800',
-                'E'=>'bg-orange-100 text-orange-800','F'=>'bg-red-100 text-red-800',
-            ];
-        @endphp
-        <div class="space-y-5 p-1 max-h-[75vh] overflow-y-auto">
+            @if ($previewStudentId)
+            <div class="space-y-3 p-1">
 
-            {{-- Student header --}}
-            <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4">
-                <div>
-                    <p class="font-bold text-indigo-900 text-lg">{{ $pd['student']->full_name }}</p>
-                    <p class="text-indigo-600 text-sm">{{ $pd['classroom']->name }} &middot; Term {{ $pd['term'] }} &middot; {{ $pd['academic_year'] }}</p>
-                </div>
-                @if ($pd['overallGrade'])
-                    <div class="text-center">
-                        <span class="inline-flex items-center justify-center w-14 h-14 rounded-full text-2xl font-extrabold border-4 border-indigo-200 {{ $gradeColors[$pd['overallGrade']] ?? '' }}">
-                            {{ $pd['overallGrade'] }}
-                        </span>
-                        <p class="text-xs text-indigo-500 mt-1">{{ $pd['overallAvg'] }}% overall</p>
+                {{-- Student info strip --}}
+                @php $ps = $this->students->firstWhere('id', $previewStudentId); @endphp
+                @if ($ps)
+                <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                    <div>
+                        <p class="font-bold text-indigo-900">{{ $ps->full_name }}</p>
+                        <p class="text-sm text-indigo-500">{{ $this->classroom->name }} &middot; Term {{ $selectedTerm }} &middot; {{ $selectedYear }}</p>
                     </div>
+                    <a href="{{ route('user.report-settings', $classId) }}"
+                       class="text-xs text-indigo-500 hover:text-indigo-700 underline underline-offset-2">
+                        Change layout
+                    </a>
+                </div>
                 @endif
+
+                {{-- Actual report card rendered in iframe --}}
+                <div class="rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                    <iframe
+                        src="{{ route('user.report-preview', [$classId, $previewStudentId]) }}?term={{ $selectedTerm }}&year={{ $selectedYear }}"
+                        style="width: 100%; height: 640px; border: none; display: block;"
+                        loading="lazy"
+                    ></iframe>
+                </div>
+
             </div>
-
-            {{-- Assessment breakdown — single unified table --}}
-            @if (! empty($pd['bySubject']))
-            @php
-                $typeLabels = [
-                    'test'=>'Class Test','exam'=>'Examination',
-                    'assignment'=>'Assignment','ca'=>'Continuous Assessment',
-                    'other'=>'Other',
-                ];
-            @endphp
-            <div class="border border-slate-200 rounded-lg overflow-hidden text-xs">
-                <table class="w-full">
-                    <thead>
-                        <tr class="bg-slate-800 text-white">
-                            <th class="px-3 py-2 text-left font-semibold uppercase tracking-wide text-xs">Subject / Assessment</th>
-                            <th class="px-3 py-2 text-center font-semibold uppercase tracking-wide text-xs w-20">Score</th>
-                            <th class="px-3 py-2 text-center font-semibold uppercase tracking-wide text-xs w-14">%</th>
-                            <th class="px-3 py-2 text-center font-semibold uppercase tracking-wide text-xs w-14">Grade</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @foreach ($pd['bySubject'] as $subject => $subjectData)
-
-                            {{-- Subject header row --}}
-                            <tr class="bg-slate-700">
-                                <td colspan="4" class="px-3 py-1.5 font-bold text-white text-xs">
-                                    {{ $subject }}
-                                    <span class="ml-2 font-normal text-slate-400 text-xs">{{ $subjectData['count'] }} {{ Str::plural('record', $subjectData['count']) }}</span>
-                                </td>
-                            </tr>
-
-                            @foreach ($subjectData['byType'] as $type => $data)
-
-                                {{-- Type header row --}}
-                                <tr class="bg-indigo-50">
-                                    <td colspan="4" class="px-4 py-1 font-semibold text-indigo-700 text-xs">
-                                        {{ $typeLabels[$type] ?? ucfirst($type) }}
-                                        <span class="font-normal text-indigo-400 ml-1">({{ $data['count'] }})</span>
-                                    </td>
-                                </tr>
-
-                                {{-- Score rows --}}
-                                @foreach ($data['scores'] as $i => $score)
-                                <tr class="hover:bg-slate-50">
-                                    <td class="px-5 py-1.5 text-slate-400">Entry {{ $i + 1 }}</td>
-                                    <td class="px-3 py-1.5 text-center font-medium text-slate-700">{{ $score['score'] }}/{{ $score['max_score'] }}</td>
-                                    <td class="px-3 py-1.5 text-center text-slate-600">{{ $score['percentage'] }}%</td>
-                                    <td class="px-3 py-1.5 text-center">
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full font-bold {{ $gradeColors[$score['grade']] ?? '' }}">{{ $score['grade'] }}</span>
-                                    </td>
-                                </tr>
-                                @endforeach
-
-                                {{-- Type average row --}}
-                                <tr class="bg-green-50">
-                                    <td class="px-5 py-1.5 font-semibold text-green-700">{{ $typeLabels[$type] ?? ucfirst($type) }} Average</td>
-                                    <td class="px-3 py-1.5 text-center text-slate-400">—</td>
-                                    <td class="px-3 py-1.5 text-center font-semibold text-green-700">{{ $data['average'] }}%</td>
-                                    <td class="px-3 py-1.5 text-center">
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full font-bold {{ $gradeColors[$data['grade']] ?? '' }}">{{ $data['grade'] }}</span>
-                                    </td>
-                                </tr>
-
-                            @endforeach
-
-                            {{-- Subject overall average row --}}
-                            <tr class="bg-indigo-100 border-t-2 border-indigo-200">
-                                <td class="px-4 py-1.5 font-bold text-indigo-800">{{ $subject }} — Overall</td>
-                                <td class="px-3 py-1.5 text-center text-slate-400">—</td>
-                                <td class="px-3 py-1.5 text-center font-bold text-indigo-800">{{ $subjectData['average'] }}%</td>
-                                <td class="px-3 py-1.5 text-center">
-                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full font-bold {{ $gradeColors[$subjectData['overallGrade']] ?? '' }}">{{ $subjectData['overallGrade'] }}</span>
-                                </td>
-                            </tr>
-
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-            @else
-                <div class="text-center py-6 text-slate-400 text-sm">No assessments recorded for this term.</div>
             @endif
 
-            {{-- Attendance --}}
-            <div>
-                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Attendance — {{ $pd['academic_year'] }}</p>
-                <div class="grid grid-cols-5 gap-3">
-                    @foreach ([
-                        ['Present', $pd['presentDays'], 'text-emerald-600'],
-                        ['Absent',  $pd['absentDays'],  'text-red-500'],
-                        ['Late',    $pd['lateDays'],    'text-amber-500'],
-                        ['Rate',    ($pd['attendanceRate'] !== null ? $pd['attendanceRate'].'%' : '—'), 'text-indigo-600'],
-                        ['Total',   $pd['totalDays'],   'text-slate-600'],
-                    ] as [$label, $value, $color])
-                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
-                        <p class="text-lg font-bold {{ $color }}">{{ $value }}</p>
-                        <p class="text-xs text-slate-400 font-medium mt-0.5">{{ $label }}</p>
-                    </div>
-                    @endforeach
+            <x-slot name="footer">
+                <div class="flex justify-end gap-3">
+                    @if ($previewStudentId)
+                        <x-button
+                            wire:click="generateReport({{ $previewStudentId }})"
+                            wire:loading.attr="disabled"
+                            wire:target="generateReport({{ $previewStudentId }})"
+                            icon="document-arrow-down"
+                            label="Generate PDF"
+                            primary
+                            spinner="generateReport({{ $previewStudentId }})"
+                        />
+                    @endif
+                    <x-button wire:click="$set('showPreviewModal', false)" label="Close" flat />
                 </div>
-            </div>
-
-        </div>
-        @endif
-
-        <x-slot name="footer">
-            <div class="flex justify-end gap-3">
-                @if (! empty($previewData))
-                    <x-button
-                        wire:click="generateReport({{ $previewStudentId }})"
-                        wire:loading.attr="disabled"
-                        wire:target="generateReport({{ $previewStudentId }})"
-                        icon="document-arrow-down"
-                        label="Generate PDF"
-                        primary
-                        spinner="generateReport({{ $previewStudentId }})"
-                    />
-                @endif
-                <x-button wire:click="$set('showPreviewModal', false)" label="Close" flat />
-            </div>
-        </x-slot>
+            </x-slot>
         </x-card>
     </x-modal>
 
@@ -1034,140 +739,6 @@ new class extends Component
                         label="Save"
                         primary
                         spinner="saveComment"
-                    />
-                </div>
-            </x-slot>
-        </x-card>
-    </x-modal>
-
-
-    {{-- ══════════════════════════════════════════════════════════
-         REPORT CARD SETTINGS MODAL
-    ══════════════════════════════════════════════════════════ --}}
-    <x-modal wire:model.live="showSettingsModal" title="Customise Report Card" blur persistent width="xl">
-        <x-card class="relative">
-            <div class="p-1 space-y-5">
-
-                <p class="text-sm text-slate-500">
-                    These settings apply to all report cards generated for
-                    <strong>{{ $this->classroom->name }}</strong>. Regenerate PDFs after saving to apply changes.
-                </p>
-
-                {{-- School name --}}
-                <x-input
-                    wire:model="settingSchoolName"
-                    label="School / Report Title"
-                    placeholder="e.g. Sunrise Academy"
-                    :error="$errors->first('settingSchoolName')"
-                />
-
-                {{-- School motto --}}
-                <x-input
-                    wire:model="settingSchoolMotto"
-                    label="School Motto (optional)"
-                    placeholder="e.g. Excellence Through Knowledge"
-                    :error="$errors->first('settingSchoolMotto')"
-                />
-
-                {{-- School logo --}}
-                <div>
-                    <p class="text-xs font-semibold text-slate-600 mb-1">School Logo (optional)</p>
-                    @if ($settingLogoPath)
-                        <div class="flex items-center gap-3 mb-2">
-                            <img src="{{ Storage::disk('public')->url($settingLogoPath) }}" alt="School logo" class="h-14 w-auto rounded border border-slate-200 bg-slate-50 object-contain p-1" />
-                            <div class="text-xs text-slate-500">
-                                <p>Logo uploaded.</p>
-                                <button wire:click="removeLogo" type="button" class="text-red-400 hover:underline mt-0.5">Remove logo</button>
-                            </div>
-                        </div>
-                    @endif
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <div class="flex-1 border border-dashed border-slate-300 rounded-lg px-4 py-3 text-center hover:border-indigo-400 hover:bg-indigo-50 transition-colors">
-                            @if ($settingLogo)
-                                <p class="text-xs text-indigo-600 font-medium">{{ $settingLogo->getClientOriginalName() }}</p>
-                                <p class="text-xs text-slate-400 mt-0.5">Click to change</p>
-                            @else
-                                <x-icon name="photo" class="w-5 h-5 text-slate-400 mx-auto mb-1" />
-                                <p class="text-xs text-slate-500">Click to upload PNG / JPG / SVG (max 2 MB)</p>
-                            @endif
-                        </div>
-                        <input type="file" wire:model="settingLogo" accept="image/*" class="sr-only" />
-                    </label>
-                    @error('settingLogo') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
-                </div>
-
-                {{-- Accent colour --}}
-                <div>
-                    <p class="text-xs font-semibold text-slate-600 mb-1">Accent Colour</p>
-                    <div class="flex items-center gap-3">
-                        <input
-                            type="color"
-                            wire:model.live="settingAccentColor"
-                            class="w-10 h-10 rounded cursor-pointer border border-slate-200"
-                        />
-                        <x-input
-                            wire:model.live.debounce.300ms="settingAccentColor"
-                            placeholder="#4f46e5"
-                            class="font-mono w-32"
-                            :error="$errors->first('settingAccentColor')"
-                        />
-                        <div class="flex gap-1.5">
-                            @foreach (['#4f46e5','#059669','#0284c7','#dc2626','#d97706','#7c3aed','#0f172a'] as $preset)
-                            <button
-                                wire:click="$set('settingAccentColor', '{{ $preset }}')"
-                                type="button"
-                                title="{{ $preset }}"
-                                class="w-6 h-6 rounded-full border-2 {{ $settingAccentColor === $preset ? 'border-slate-800 scale-110' : 'border-transparent' }} transition-all"
-                                style="background:{{ $preset }}"
-                            ></button>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
-
-                {{-- Sections to show --}}
-                <div>
-                    <p class="text-xs font-semibold text-slate-600 mb-2">Sections to Include</p>
-                    <div class="grid grid-cols-2 gap-3">
-                        <label class="flex items-center gap-2 cursor-pointer select-none">
-                            <input type="checkbox" wire:model="settingShowAttendance" class="rounded text-indigo-600" />
-                            <span class="text-sm text-slate-700">Attendance Summary</span>
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer select-none">
-                            <input type="checkbox" wire:model="settingShowConduct" class="rounded text-indigo-600" />
-                            <span class="text-sm text-slate-700">Conduct Grade</span>
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer select-none">
-                            <input type="checkbox" wire:model="settingShowGradingScale" class="rounded text-indigo-600" />
-                            <span class="text-sm text-slate-700">ECZ Grading Scale</span>
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer select-none">
-                            <input type="checkbox" wire:model="settingShowSignatures" class="rounded text-indigo-600" />
-                            <span class="text-sm text-slate-700">Signature Lines</span>
-                        </label>
-                    </div>
-                </div>
-
-                {{-- Footer note --}}
-                <x-input
-                    wire:model="settingFooterNote"
-                    label="Footer Note (optional)"
-                    placeholder="e.g. This report is computer generated and valid without a stamp."
-                    :error="$errors->first('settingFooterNote')"
-                />
-
-            </div>
-            <x-slot name="footer">
-                <div class="flex justify-end gap-3">
-                    <x-button wire:click="$set('showSettingsModal', false)" label="Cancel" flat />
-                    <x-button
-                        wire:click="saveSettings"
-                        wire:loading.attr="disabled"
-                        wire:target="saveSettings"
-                        icon="check"
-                        label="Save Settings"
-                        primary
-                        spinner="saveSettings"
                     />
                 </div>
             </x-slot>

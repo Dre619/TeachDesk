@@ -11,19 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            //
-            $table->enum('role',['user','super_admin','student','parent','school_admin'])->default('user');
+        Schema::table('report_card_settings', function (Blueprint $table) {
+            $table->string('layout', 20)->default('modern')->after('footer_note');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            //
+        Schema::table('report_card_settings', function (Blueprint $table) {
+            $table->dropColumn('layout');
         });
     }
 };
