@@ -8,6 +8,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 use Laravel\Fortify\TwoFactorAuthenticatable;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 class User extends Authenticatable
@@ -28,6 +29,7 @@ class User extends Authenticatable
         'role',
         'school_name',
         'city',
+        'school_id',
     ];
 
     /**
@@ -59,6 +61,11 @@ class User extends Authenticatable
     // ──────────────────────────────────────────
     // Relationships
     // ──────────────────────────────────────────
+
+    public function school(): BelongsTo
+    {
+        return $this->belongsTo(School::class);
+    }
 
     public function classes(): HasMany
     {

@@ -2,10 +2,12 @@
 
 use App\Actions\BuildReportData;
 use App\Jobs\GenerateBulkReports;
+use App\Mail\ReportShared;
 use App\Models\ClassRoom;
 use App\Models\Report;
 use App\Models\Student;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -59,6 +61,17 @@ new class extends Component
     // ──────────────────────────────────────────
 
     public ?int $deletingReportId = null;
+
+    // ──────────────────────────────────────────
+    // Share state
+    // ──────────────────────────────────────────
+
+    public bool   $showShareModal  = false;
+    public ?int   $shareReportId   = null;
+    public string $shareStudentName = '';
+    public string $shareUrl         = '';
+    public string $shareEmail       = '';
+    public bool   $shareSent        = false;
 
     // ──────────────────────────────────────────
     // Generation tracking
@@ -328,6 +341,43 @@ new class extends Component
     }
 
     // ──────────────────────────────────────────
+    // Share report
+    // ──────────────────────────────────────────
+
+    public function openShareModal(int $reportId): void
+    {
+        $report = Report::forTeacher(Auth::id())->findOrFail($reportId);
+        $token  = $report->generateShareToken();
+
+        $this->shareReportId   = $reportId;
+        $this->shareStudentName = $report->student->full_name ?? '';
+        $this->shareUrl        = route('report.shared', $token);
+        $this->shareEmail      = $report->parent_email ?? '';
+        $this->shareSent       = false;
+        $this->showShareModal  = true;
+    }
+
+    public function sendShareEmail(): void
+    {
+        $this->validate(['shareEmail' => 'required|email|max:255']);
+
+        $report = Report::forTeacher(Auth::id())->with('student')->findOrFail($this->shareReportId);
+        $user   = Auth::user();
+
+        $report->update(['parent_email' => $this->shareEmail]);
+
+        Mail::to($this->shareEmail)->queue(new ReportShared(
+            report:      $report,
+            studentName: $report->student->full_name ?? '',
+            teacherName: $user->name,
+            schoolName:  $user->school_name ?? '',
+        ));
+
+        $this->shareSent = true;
+        $this->notification()->success(title: 'Email sent!', description: "Report link sent to {$this->shareEmail}.");
+    }
+
+    // ──────────────────────────────────────────
     // Core generation logic
     // ──────────────────────────────────────────
 
@@ -384,6 +434,15 @@ new class extends Component
                         <x-icon name="adjustments-horizontal" class="w-4 h-4" />
                         Customise
                     </a>
+                    @if($this->stats['generated'] > 0)
+                    <a
+                        href="{{ route('user.reports.download-zip', $classId) }}?term={{ $selectedTerm }}&year={{ $selectedYear }}"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-emerald-300 bg-white text-emerald-700 text-sm font-semibold hover:bg-emerald-50 transition-colors"
+                    >
+                        <x-icon name="archive-box-arrow-down" class="w-4 h-4" />
+                        Download ZIP ({{ $this->stats['generated'] }})
+                    </a>
+                    @endif
                     <x-button
                         wire:click="openBulkModal"
                         icon="document-duplicate"
@@ -574,7 +633,7 @@ new class extends Component
                                         :disabled="$isGenerating"
                                     />
 
-                                    {{-- Download --}}
+                                    {{-- Download + Share + Delete (generated only) --}}
                                     @if ($report?->isGenerated())
                                         <a
                                             href="{{ $report->pdf_url }}"
@@ -584,6 +643,15 @@ new class extends Component
                                         >
                                             <x-icon name="arrow-down-tray" class="w-4 h-4" />
                                         </a>
+
+                                        {{-- Share --}}
+                                        <x-button
+                                            wire:click="openShareModal({{ $report->id }})"
+                                            icon="share"
+                                            flat xs
+                                            class="text-violet-500"
+                                            title="Share with parent"
+                                        />
 
                                         {{-- Delete PDF --}}
                                         <x-button
@@ -817,6 +885,95 @@ new class extends Component
                 />
             </div>
         </x-slot>
+        </x-card>
+    </x-modal>
+
+    {{-- ══════════════════════════════════════════════════════════
+         SHARE MODAL — email + WhatsApp
+    ══════════════════════════════════════════════════════════ --}}
+    <x-modal wire:model.live="showShareModal" title="Share Report Card" blur width="lg">
+        <x-card class="relative">
+            <div class="p-1 space-y-5">
+
+                {{-- Student context --}}
+                <div class="flex items-center gap-3 rounded-xl bg-violet-50 border border-violet-200 px-4 py-3">
+                    <div class="shrink-0 w-9 h-9 rounded-full bg-violet-200 text-violet-700 flex items-center justify-center font-bold text-sm">
+                        {{ strtoupper(substr($shareStudentName, 0, 1)) }}
+                    </div>
+                    <div>
+                        <p class="font-semibold text-violet-900 text-sm">{{ $shareStudentName }}</p>
+                        <p class="text-xs text-violet-500">Term {{ $selectedTerm }} · {{ $selectedYear }}</p>
+                    </div>
+                </div>
+
+                {{-- Shareable link --}}
+                <div>
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Shareable Link</p>
+                    <div class="flex items-center gap-2">
+                        <input
+                            type="text"
+                            readonly
+                            value="{{ $shareUrl }}"
+                            class="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 font-mono"
+                            onclick="this.select()"
+                        />
+                        <button
+                            onclick="navigator.clipboard.writeText('{{ $shareUrl }}'); this.textContent='Copied!';"
+                            class="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">Anyone with this link can view the report card — no login required.</p>
+                </div>
+
+                {{-- WhatsApp --}}
+                <div>
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Share via WhatsApp</p>
+                    <a
+                        href="https://wa.me/?text={{ urlencode('Hi, here is the report card for ' . $shareStudentName . ' (Term ' . $selectedTerm . ', ' . $selectedYear . '): ' . $shareUrl) }}"
+                        target="_blank"
+                        class="inline-flex items-center gap-2 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold text-sm px-4 py-2.5 transition"
+                    >
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                        </svg>
+                        Send via WhatsApp
+                    </a>
+                </div>
+
+                {{-- Email --}}
+                <div>
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Send via Email</p>
+                    <div class="flex items-start gap-2">
+                        <x-input
+                            wire:model="shareEmail"
+                            type="email"
+                            placeholder="parent@example.com"
+                            :error="$errors->first('shareEmail')"
+                            class="flex-1"
+                        />
+                        <x-button
+                            wire:click="sendShareEmail"
+                            wire:loading.attr="disabled"
+                            wire:target="sendShareEmail"
+                            icon="envelope"
+                            label="Send"
+                            primary
+                            spinner="sendShareEmail"
+                        />
+                    </div>
+                    @if ($shareSent)
+                        <p class="text-xs text-emerald-600 font-medium mt-1">&#10003; Email sent to {{ $shareEmail }}</p>
+                    @endif
+                </div>
+
+            </div>
+            <x-slot name="footer">
+                <div class="flex justify-end">
+                    <x-button wire:click="$set('showShareModal', false)" label="Close" flat />
+                </div>
+            </x-slot>
         </x-card>
     </x-modal>
 

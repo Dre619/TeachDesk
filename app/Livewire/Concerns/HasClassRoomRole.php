@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Auth;
 trait HasClassRoomRole
 {
     // These public properties are automatically available in the blade
-    public string  $myRole    = 'form_teacher';  // 'form_teacher' | 'subject_teacher'
-    public ?string $mySubject = null;             // null = sees all subjects
+    public string $myRole     = 'form_teacher';  // 'form_teacher' | 'subject_teacher'
+    public array  $mySubjects = [];              // empty = sees all subjects (form teacher)
 
     /**
      * Call this at the end of mount() in any class-scoped Livewire component.
@@ -28,11 +28,11 @@ trait HasClassRoomRole
         $userId = Auth::id();
 
         if ($classroom->isOwnedBy($userId)) {
-            $this->myRole    = 'form_teacher';
-            $this->mySubject = null;
+            $this->myRole     = 'form_teacher';
+            $this->mySubjects = [];
         } else {
-            $this->myRole    = 'subject_teacher';
-            $this->mySubject = $classroom->memberSubject($userId);
+            $this->myRole     = 'subject_teacher';
+            $this->mySubjects = $classroom->memberSubjects($userId);
         }
     }
 

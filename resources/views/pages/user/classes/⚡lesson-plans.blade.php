@@ -25,9 +25,10 @@ new class extends Component
     // Modal flags
     // ──────────────────────────────────────────
 
-    public bool $showFormModal   = false;
-    public bool $showDeleteModal = false;
-    public bool $showDetailModal = false;
+    public bool $showFormModal            = false;
+    public bool $showDeleteModal          = false;
+    public bool $showDetailModal          = false;
+    public bool $showTemplatePickerModal  = false;
 
     // ──────────────────────────────────────────
     // Form state
@@ -75,9 +76,10 @@ new class extends Component
     // Delete / detail state
     // ──────────────────────────────────────────
 
-    public ?int        $deletingId  = null;
-    public ?LessonPlan $viewing     = null;
-    public array       $exportingIds = [];
+    public ?int        $deletingId         = null;
+    public ?int        $deletingTemplateId = null;
+    public ?LessonPlan $viewing            = null;
+    public array       $exportingIds       = [];
 
     // ──────────────────────────────────────────
     // Filters
@@ -149,6 +151,16 @@ new class extends Component
             ->orderByDesc('academic_year')
             ->pluck('academic_year')
             ->toArray();
+    }
+
+    #[Computed]
+    public function templates()
+    {
+        return LessonPlan::forTeacher(Auth::id())
+            ->templates()
+            ->with('classRoom')
+            ->chronological()
+            ->get();
     }
 
     // ──────────────────────────────────────────
@@ -229,6 +241,77 @@ new class extends Component
             title:       'Duplicated',
             description: "'{$copy->title}' created as a copy.",
         );
+    }
+
+    public function saveAsTemplate(int $id): void
+    {
+        $plan     = $this->findOwned($id);
+        $template = $plan->duplicate(asTemplate: true);
+        $template->save();
+        unset($this->lessonPlans, $this->templates);
+
+        $this->notification()->success(
+            title:       'Saved as Template',
+            description: "'{$template->title}' is now available as a template.",
+        );
+    }
+
+    public function openTemplatePicker(): void
+    {
+        $this->showTemplatePickerModal = true;
+    }
+
+    public function useTemplate(int $id): void
+    {
+        $template = LessonPlan::forTeacher(Auth::id())
+            ->templates()
+            ->findOrFail($id);
+
+        $this->title            = $template->title;
+        $this->subject          = $template->subject;
+        $this->topic            = $template->topic;
+        $this->term             = $template->term;
+        $this->week_number      = $template->week_number;
+        $this->academic_year    = (int) date('Y');
+        $this->duration_minutes = $template->duration_minutes;
+        $this->objectives       = $template->objectives  ?? '';
+        $this->resources        = $template->resources   ?? '';
+        $this->content          = $template->content     ?? '';
+        $this->assessment       = $template->assessment  ?? '';
+        $this->homework         = $template->homework    ?? '';
+
+        $this->showTemplatePickerModal = false;
+        $this->showFormModal           = true;
+        $this->notification()->success(
+            title:       'Template Applied',
+            description: "Form filled from '{$template->title}'.",
+        );
+    }
+
+    public function confirmDeleteTemplate(int $id): void
+    {
+        $this->deletingTemplateId = $id;
+        $this->showDeleteModal    = true;
+    }
+
+    public function deleteTemplate(): void
+    {
+        if ($this->deletingTemplateId) {
+            $template = LessonPlan::forTeacher(Auth::id())
+                ->templates()
+                ->findOrFail($this->deletingTemplateId);
+            $title = $template->title;
+            $template->delete();
+            unset($this->templates);
+
+            $this->notification()->warning(
+                title:       'Template Deleted',
+                description: "'{$title}' has been removed.",
+            );
+        }
+
+        $this->showDeleteModal    = false;
+        $this->deletingTemplateId = null;
     }
 
     public function confirmDelete(int $id): void
@@ -377,6 +460,20 @@ new class extends Component
                             <x-icon name="table-cells" class="w-4 h-4 inline-block -mt-0.5 mr-1" />
                             Term Grid
                         </button>
+                        <button
+                            wire:click="$set('viewMode', 'templates')"
+                            @class([
+                                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                                'bg-white shadow text-slate-800' => $viewMode === 'templates',
+                                'text-slate-500 hover:text-slate-700' => $viewMode !== 'templates',
+                            ])
+                        >
+                            <x-icon name="rectangle-stack" class="w-4 h-4 inline-block -mt-0.5 mr-1" />
+                            Templates
+                            @if ($this->templates->isNotEmpty())
+                                <span class="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold">{{ $this->templates->count() }}</span>
+                            @endif
+                        </button>
                     </div>
 
                     <x-button
@@ -436,9 +533,72 @@ new class extends Component
         </div>
 
         {{-- ══════════════════════════════════════════════════════════
+             TEMPLATES VIEW
+        ══════════════════════════════════════════════════════════ --}}
+        @if ($viewMode === 'templates')
+            @if ($this->templates->isEmpty())
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm py-20 text-center">
+                    <x-icon name="rectangle-stack" class="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p class="text-slate-500 font-medium">No templates yet.</p>
+                    <p class="text-slate-400 text-sm mt-1">Save any lesson plan as a template using the <x-icon name="rectangle-stack" class="w-3.5 h-3.5 inline-block text-amber-500" /> button.</p>
+                </div>
+            @else
+                @php $bySubject = $this->templates->groupBy('subject'); @endphp
+                <div class="space-y-6">
+                    @foreach ($bySubject as $subject => $subjectTemplates)
+                        <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div class="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <x-icon name="rectangle-stack" class="w-4 h-4 text-amber-600" />
+                                    <h2 class="font-bold text-amber-800 text-sm">{{ $subject }}</h2>
+                                </div>
+                                <span class="text-xs text-amber-600 font-semibold">{{ $subjectTemplates->count() }} {{ Str::plural('template', $subjectTemplates->count()) }}</span>
+                            </div>
+                            <div class="divide-y divide-slate-100">
+                                @foreach ($subjectTemplates as $tpl)
+                                    <div wire:key="tpl-{{ $tpl->id }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
+                                        <div class="min-w-0">
+                                            <p class="font-semibold text-slate-800 text-sm truncate">{{ $tpl->title }}</p>
+                                            <p class="text-xs text-slate-400 mt-0.5 truncate">{{ $tpl->topic }}</p>
+                                            <div class="flex items-center gap-2 mt-1">
+                                                <span class="text-xs text-slate-500">Term {{ $tpl->term }} · Wk {{ $tpl->week_number }}</span>
+                                                @if ($tpl->duration_label)
+                                                    <span class="text-xs text-slate-400">· {{ $tpl->duration_label }}</span>
+                                                @endif
+                                                @if ($tpl->classRoom)
+                                                    <span class="text-xs text-indigo-500">· {{ $tpl->classRoom->name }}</span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 ml-4 shrink-0">
+                                            <x-button
+                                                wire:click="useTemplate({{ $tpl->id }})"
+                                                icon="arrow-up-tray"
+                                                label="Use"
+                                                xs
+                                                primary
+                                                class="shrink-0"
+                                            />
+                                            <x-button
+                                                wire:click="confirmDeleteTemplate({{ $tpl->id }})"
+                                                icon="trash"
+                                                flat xs
+                                                class="text-red-500"
+                                                title="Delete template"
+                                            />
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+
+        {{-- ══════════════════════════════════════════════════════════
              EMPTY STATE
         ══════════════════════════════════════════════════════════ --}}
-        @if ($this->lessonPlans->isEmpty())
+        @elseif ($this->lessonPlans->isEmpty())
             <div class="bg-white rounded-xl border border-slate-200 shadow-sm py-20 text-center">
                 <x-icon name="document-text" class="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p class="text-slate-500 font-medium">No lesson plans found.</p>
@@ -526,6 +686,15 @@ new class extends Component
                                         flat xs
                                         class="text-sky-600"
                                         title="Duplicate"
+                                    />
+                                    <x-button
+                                        wire:click="saveAsTemplate({{ $plan->id }})"
+                                        wire:loading.attr="disabled"
+                                        wire:target="saveAsTemplate({{ $plan->id }})"
+                                        icon="rectangle-stack"
+                                        flat xs
+                                        class="text-amber-600"
+                                        title="Save as Template"
                                     />
                                     <x-button
                                         wire:click="openEditModal({{ $plan->id }})"
@@ -624,6 +793,13 @@ new class extends Component
                                                                 <x-icon name="document-duplicate" class="w-3 h-3" />
                                                             </button>
                                                             <button
+                                                                wire:click.stop="saveAsTemplate({{ $plan->id }})"
+                                                                class="p-1 rounded bg-white border border-slate-200 text-amber-600 hover:bg-amber-50"
+                                                                title="Save as Template"
+                                                            >
+                                                                <x-icon name="rectangle-stack" class="w-3 h-3" />
+                                                            </button>
+                                                            <button
                                                                 wire:click.stop="openEditModal({{ $plan->id }})"
                                                                 class="p-1 rounded bg-white border border-slate-200 text-indigo-600 hover:bg-indigo-50"
                                                                 title="Edit"
@@ -666,6 +842,24 @@ new class extends Component
     >
         <x-card class="relative">
             <div class="p-1 space-y-5 max-h-[75vh] overflow-y-auto">
+
+                {{-- ── Template shortcut (create mode only) ── --}}
+                @if (! $editingId)
+                    <div class="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+                        <div class="flex items-center gap-2">
+                            <x-icon name="rectangle-stack" class="w-4 h-4 text-amber-600" />
+                            <span class="text-sm text-amber-800 font-medium">Start from a template?</span>
+                        </div>
+                        <x-button
+                            wire:click="openTemplatePicker"
+                            icon="rectangle-stack"
+                            label="Browse Templates"
+                            xs
+                            class="text-amber-700 border-amber-300 hover:bg-amber-100"
+                            outline
+                        />
+                    </div>
+                @endif
 
                 {{-- ── Basic info ── --}}
                 <div class="space-y-3">
@@ -803,21 +997,27 @@ new class extends Component
     {{-- ══════════════════════════════════════════════════════════
          DELETE CONFIRMATION MODAL
     ══════════════════════════════════════════════════════════ --}}
-    <x-modal wire:model.live="showDeleteModal" title="Delete Lesson Plan" blur width="lg">
+    <x-modal wire:model.live="showDeleteModal" :title="$deletingTemplateId ? 'Delete Template' : 'Delete Lesson Plan'" blur width="lg">
         <x-card class="relative">
             <div class="flex items-start gap-4 p-1">
                 <div class="shrink-0 flex items-center justify-center w-12 h-12 rounded-full bg-red-50">
                     <x-icon name="exclamation-triangle" class="w-6 h-6 text-red-500" />
                 </div>
                 <div>
-                    <p class="text-slate-700 font-medium">Delete this lesson plan?</p>
+                    <p class="text-slate-700 font-medium">
+                        {{ $deletingTemplateId ? 'Delete this template?' : 'Delete this lesson plan?' }}
+                    </p>
                     <p class="text-slate-500 text-sm mt-1">This action cannot be undone.</p>
                 </div>
             </div>
             <x-slot name="footer">
                 <div class="flex justify-end gap-3">
                     <x-button wire:click="$set('showDeleteModal', false)" label="Cancel" flat />
-                    <x-button wire:click="delete" wire:loading.attr="disabled" wire:target="delete" label="Yes, Delete" red spinner="delete" />
+                    @if ($deletingTemplateId)
+                        <x-button wire:click="deleteTemplate" wire:loading.attr="disabled" wire:target="deleteTemplate" label="Yes, Delete" red spinner="deleteTemplate" />
+                    @else
+                        <x-button wire:click="delete" wire:loading.attr="disabled" wire:target="delete" label="Yes, Delete" red spinner="delete" />
+                    @endif
                 </div>
             </x-slot>
         </x-card>
@@ -909,6 +1109,13 @@ new class extends Component
                             spinner="exportPdf({{ $viewing->id }})"
                         />
                         <x-button wire:click="duplicate({{ $viewing->id }})" icon="document-duplicate" label="Duplicate" outline />
+                        <x-button
+                            wire:click="saveAsTemplate({{ $viewing->id }})"
+                            icon="rectangle-stack"
+                            label="Save as Template"
+                            outline
+                            class="text-amber-700 border-amber-300 hover:bg-amber-50"
+                        />
                         <x-button wire:click="openEditModal({{ $viewing->id }})" icon="pencil" label="Edit" outline />
                     </div>
                     <x-button wire:click="$set('showDetailModal', false)" label="Close" flat />
@@ -917,5 +1124,58 @@ new class extends Component
         </x-card>
     </x-modal>
     @endif
+
+
+    {{-- ══════════════════════════════════════════════════════════
+         TEMPLATE PICKER MODAL
+    ══════════════════════════════════════════════════════════ --}}
+    <x-modal wire:model.live="showTemplatePickerModal" title="Choose a Template" blur width="2xl">
+        <x-card class="relative">
+            <div class="p-1 max-h-[65vh] overflow-y-auto">
+                @if ($this->templates->isEmpty())
+                    <div class="py-16 text-center">
+                        <x-icon name="rectangle-stack" class="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p class="text-slate-500 font-medium">No templates yet.</p>
+                        <p class="text-slate-400 text-sm mt-1">Save any lesson plan as a template to reuse it here.</p>
+                    </div>
+                @else
+                    @php $bySubjectPicker = $this->templates->groupBy('subject'); @endphp
+                    <div class="space-y-4">
+                        @foreach ($bySubjectPicker as $subject => $subjectTpls)
+                            <div>
+                                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 px-1">{{ $subject }}</p>
+                                <div class="space-y-1">
+                                    @foreach ($subjectTpls as $tpl)
+                                        <button
+                                            wire:key="picker-{{ $tpl->id }}"
+                                            wire:click="useTemplate({{ $tpl->id }})"
+                                            class="w-full text-left flex items-center justify-between px-4 py-3 rounded-lg border border-slate-200 hover:border-amber-400 hover:bg-amber-50 transition-colors group"
+                                        >
+                                            <div class="min-w-0">
+                                                <p class="font-semibold text-slate-800 text-sm group-hover:text-amber-800 truncate">{{ $tpl->title }}</p>
+                                                <p class="text-xs text-slate-400 mt-0.5 truncate">{{ $tpl->topic }}</p>
+                                                <div class="flex items-center gap-2 mt-1">
+                                                    <span class="text-xs text-slate-500">Term {{ $tpl->term }} · Wk {{ $tpl->week_number }}</span>
+                                                    @if ($tpl->duration_label)
+                                                        <span class="text-xs text-slate-400">· {{ $tpl->duration_label }}</span>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                            <x-icon name="arrow-right" class="w-4 h-4 text-slate-300 group-hover:text-amber-500 shrink-0 ml-3" />
+                                        </button>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+            <x-slot name="footer">
+                <div class="flex justify-end">
+                    <x-button wire:click="$set('showTemplatePickerModal', false)" label="Cancel" flat />
+                </div>
+            </x-slot>
+        </x-card>
+    </x-modal>
 
 </div>

@@ -11,9 +11,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->web(append: [
+            App\Http\Middleware\Impersonate::class,
+        ]);
+
         $middleware->alias([
-            'subscribed' => App\Http\Middleware\RequireActiveSubscription::class,
+            'subscribed'   => App\Http\Middleware\RequireActiveSubscription::class,
+            'super_admin'  => App\Http\Middleware\RequireSuperAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

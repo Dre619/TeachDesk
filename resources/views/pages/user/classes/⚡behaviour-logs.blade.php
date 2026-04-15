@@ -372,6 +372,14 @@ new class extends Component
                             'text-slate-500 hover:text-slate-700' => $viewMode !== 'overview',
                         ])><x-icon name="chart-bar" class="w-4 h-4 inline -mt-0.5 mr-1" />Overview</button>
                     </div>
+                    <a
+                        href="{{ route('user.behaviour-logs.print', $classId) }}"
+                        target="_blank"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 hover:border-indigo-400 transition-colors"
+                    >
+                        <x-icon name="printer" class="w-4 h-4" />
+                        Print Log
+                    </a>
                     <x-button
                         wire:click="openCreateModal"
                         icon="plus"

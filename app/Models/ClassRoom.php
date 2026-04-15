@@ -150,13 +150,17 @@ class ClassRoom extends Model
     }
 
     /**
-     * Returns the subject this user teaches in this class, or null if they are the owner.
+     * Returns all subjects this user teaches in this class (empty array if they are the owner).
+     * Supports teachers with multiple subjects and co-teachers.
+     *
+     * @return string[]
      */
-    public function memberSubject(int $userId): ?string
+    public function memberSubjects(int $userId): array
     {
         return $this->acceptedMembers()
             ->where('user_id', $userId)
-            ->value('subject');
+            ->pluck('subject')
+            ->toArray();
     }
 
     /**

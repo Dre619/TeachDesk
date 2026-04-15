@@ -350,6 +350,14 @@ new class extends Component
                             'text-slate-500 hover:text-slate-700' => $viewMode !== 'log',
                         ])><x-icon name="list-bullet" class="w-4 h-4 inline -mt-0.5 mr-1" />Log</button>
                     </div>
+                    <a
+                        href="{{ route('user.attendance.register', $classId) }}?month={{ $registerMonth }}&year={{ $registerYear }}"
+                        target="_blank"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors"
+                    >
+                        <x-icon name="printer" class="w-4 h-4" />
+                        Print Register
+                    </a>
                     <x-button
                         wire:click="openEntryModal"
                         icon="clipboard-document-check"

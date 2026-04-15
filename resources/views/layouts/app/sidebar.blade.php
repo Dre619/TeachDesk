@@ -21,8 +21,17 @@
                 @if(auth()->user()->role === 'super_admin')
                 {{-- Admin nav --}}
                 <flux:sidebar.group heading="Admin" class="grid">
+                    <flux:sidebar.item icon="users" :href="route('admin.users')" :current="request()->routeIs('admin.users')" wire:navigate>
+                        {{ __('Users') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="credit-card" :href="route('admin.subscriptions')" :current="request()->routeIs('admin.subscriptions')" wire:navigate>
+                        {{ __('Subscriptions') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="banknotes" :href="route('admin.payments')" :current="request()->routeIs('admin.payments')" wire:navigate>
+                        {{ __('Payments') }}
+                    </flux:sidebar.item>
                     <flux:sidebar.item icon="rectangle-stack" :href="route('admin.plans')" :current="request()->routeIs('admin.plans')" wire:navigate>
-                        {{ __('Subscription Plans') }}
+                        {{ __('Plans') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
                 @endif
@@ -102,5 +111,15 @@
         {{ $slot }}
 
         @fluxScripts
+
+        {{-- Refresh CSRF tokens in all forms after wire:navigate page swaps --}}
+        <script>
+            document.addEventListener('livewire:navigated', () => {
+                const token = document.querySelector('meta[name="csrf-token"]')?.content;
+                if (token) {
+                    document.querySelectorAll('input[name="_token"]').forEach(el => el.value = token);
+                }
+            });
+        </script>
     </body>
 </html>

@@ -2,6 +2,8 @@
 
 use App\Models\Assessment;
 use App\Models\ClassRoom;
+use App\Models\ClassTransfer;
+use App\Models\LessonPlan;
 use App\Models\Payment;
 use App\Models\Student;
 use App\Models\Subscription;
@@ -121,6 +123,38 @@ new class extends Component
             ->withCount(['students as active_students_count' => fn ($q) => $q->whereNull('deleted_at')])
             ->latest()
             ->take(5)
+            ->get();
+    }
+
+    #[Computed]
+    public function thisWeekPlans()
+    {
+        return LessonPlan::forTeacher(Auth::id())
+            ->nonTemplates()
+            ->where('week_number', now()->weekOfYear)
+            ->where('academic_year', (int) now()->year)
+            ->with('classRoom')
+            ->orderBy('term')
+            ->get();
+    }
+
+    #[Computed]
+    public function recentAssessmentEntries()
+    {
+        return Assessment::where('user_id', Auth::id())
+            ->with(['student', 'classRoom'])
+            ->latest()
+            ->take(6)
+            ->get();
+    }
+
+    #[Computed]
+    public function pendingIncomingTransfers()
+    {
+        return ClassTransfer::where('to_user_id', Auth::id())
+            ->where('status', 'pending')
+            ->with(['classroom', 'fromUser'])
+            ->latest()
             ->get();
     }
 };
@@ -313,6 +347,69 @@ new class extends Component
          TEACHER / USER DASHBOARD
     ══════════════════════════════════════════════════════════ --}}
     <div class="space-y-8 p-6">
+
+        {{-- ── No school set up yet ────────────────────────── --}}
+        @if(! auth()->user()->school_id)
+        <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4 flex items-center gap-4">
+            <div class="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 3.741-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="font-semibold text-indigo-900">Your account isn't linked to a school yet</p>
+                <p class="text-sm text-indigo-700 mt-0.5">Link your account to your school so your data can be associated correctly.</p>
+            </div>
+            <a href="{{ route('profile.edit') }}" class="shrink-0 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors">
+                Set up school
+            </a>
+        </div>
+        @endif
+
+        {{-- ── Incoming transfer requests ───────────────────── --}}
+        @if ($this->pendingIncomingTransfers->isNotEmpty())
+            <div class="space-y-3">
+                @foreach ($this->pendingIncomingTransfers as $transfer)
+                <div class="bg-amber-50 border border-amber-300 rounded-xl px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div class="flex items-start gap-3 flex-1 min-w-0">
+                        <div class="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+                            <svg class="w-5 h-5 text-amber-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                            </svg>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="font-semibold text-amber-900 leading-tight">
+                                Class transfer request
+                            </p>
+                            <p class="text-sm text-amber-700 mt-0.5">
+                                <strong>{{ $transfer->fromUser->name }}</strong> wants to transfer
+                                <strong>{{ $transfer->classroom->name }}</strong>
+                                ({{ $transfer->classroom->subject }} · {{ $transfer->classroom->academic_year }}) to you.
+                            </p>
+                            @if ($transfer->message)
+                                <p class="text-xs text-amber-600 mt-1 italic">"{{ $transfer->message }}"</p>
+                            @endif
+                            <p class="text-xs text-amber-500 mt-1">Sent {{ $transfer->created_at->diffForHumans() }}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <a
+                            href="{{ route('class-transfer.decline', $transfer->token) }}"
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-300 bg-white text-amber-700 text-sm font-medium hover:bg-amber-50 transition-colors"
+                        >
+                            Decline
+                        </a>
+                        <a
+                            href="{{ route('class-transfer.accept', $transfer->token) }}"
+                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors"
+                        >
+                            Accept Transfer
+                        </a>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+        @endif
 
         {{-- Page header --}}
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -509,6 +606,121 @@ new class extends Component
             </div>
         </div>
 
+        {{-- ══════════════════════════════════════════════════════════
+             SECOND ROW — This week + Recent assessments
+        ══════════════════════════════════════════════════════════ --}}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            {{-- This week's lesson plans --}}
+            <div class="bg-white dark:bg-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-700 shadow-sm">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-700">
+                    <div>
+                        <h2 class="font-semibold text-sm text-zinc-800 dark:text-zinc-100">This Week's Plans</h2>
+                        <p class="text-xs text-zinc-400 mt-0.5">Week {{ now()->weekOfYear }} &middot; {{ now()->year }}</p>
+                    </div>
+                    @if($this->thisWeekPlans->isNotEmpty())
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 text-xs font-bold">
+                            {{ $this->thisWeekPlans->count() }}
+                        </span>
+                    @endif
+                </div>
+
+                @if($this->thisWeekPlans->isEmpty())
+                    <div class="px-5 py-10 text-center">
+                        <flux:icon name="document-text" class="w-9 h-9 text-zinc-300 mx-auto mb-2" />
+                        <p class="text-sm text-zinc-400">No plans for this week yet.</p>
+                        @if($this->myClasses->isNotEmpty())
+                            <a href="{{ route('user.lesson.plans', $this->myClasses->first()->id) }}" wire:navigate
+                               class="text-xs text-indigo-600 hover:underline mt-1 inline-block">
+                                Create a lesson plan →
+                            </a>
+                        @endif
+                    </div>
+                @else
+                    <div class="divide-y divide-zinc-50 dark:divide-zinc-700/50">
+                        @foreach($this->thisWeekPlans as $plan)
+                        <div class="flex items-center gap-3 px-5 py-3">
+                            @php
+                                $termDot = match($plan->term) {
+                                    1 => 'bg-blue-500',
+                                    2 => 'bg-amber-500',
+                                    3 => 'bg-emerald-500',
+                                    default => 'bg-zinc-400',
+                                };
+                            @endphp
+                            <span class="w-2 h-2 rounded-full {{ $termDot }} shrink-0"></span>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">{{ $plan->title }}</p>
+                                <p class="text-xs text-zinc-400 truncate">
+                                    {{ $plan->subject }}
+                                    @if($plan->classRoom) &middot; {{ $plan->classRoom->name }} @endif
+                                    @if($plan->duration_label) &middot; {{ $plan->duration_label }} @endif
+                                </p>
+                            </div>
+                            @if($plan->classRoom)
+                                <a href="{{ route('user.lesson.plans', $plan->class_id) }}" wire:navigate
+                                   class="text-xs text-indigo-500 hover:text-indigo-700 shrink-0 font-medium">
+                                    Open →
+                                </a>
+                            @endif
+                        </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+
+            {{-- Recent assessment entries --}}
+            <div class="bg-white dark:bg-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-700 shadow-sm">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-700">
+                    <h2 class="font-semibold text-sm text-zinc-800 dark:text-zinc-100">Recent Assessments</h2>
+                    <span class="text-xs text-zinc-400">Last 6 entries</span>
+                </div>
+
+                @if($this->recentAssessmentEntries->isEmpty())
+                    <div class="px-5 py-10 text-center">
+                        <flux:icon name="clipboard-document-list" class="w-9 h-9 text-zinc-300 mx-auto mb-2" />
+                        <p class="text-sm text-zinc-400">No assessments recorded yet.</p>
+                    </div>
+                @else
+                    <div class="divide-y divide-zinc-50 dark:divide-zinc-700/50">
+                        @foreach($this->recentAssessmentEntries as $entry)
+                        @php
+                            $gradeBg = match($entry->grade) {
+                                'A'     => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+                                'B'     => 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+                                'C'     => 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+                                'D','E' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
+                                default => 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+                            };
+                        @endphp
+                        <div class="flex items-center gap-3 px-5 py-3">
+                            <div class="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 flex items-center justify-center text-xs font-bold shrink-0">
+                                {{ strtoupper(substr($entry->student->name ?? '?', 0, 1)) }}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">
+                                    {{ $entry->student->name ?? '—' }}
+                                </p>
+                                <p class="text-xs text-zinc-400 truncate">
+                                    {{ $entry->subject }} &middot; {{ $entry->type_label }}
+                                    @if($entry->classRoom) &middot; {{ $entry->classRoom->name }} @endif
+                                </p>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold {{ $gradeBg }}">
+                                    {{ $entry->grade }}
+                                </span>
+                                <p class="text-xs text-zinc-400 mt-0.5">{{ $entry->percentage }}%</p>
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+
+        </div>
+
     </div>
     @endif
 </div>
+

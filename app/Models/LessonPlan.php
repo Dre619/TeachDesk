@@ -25,6 +25,7 @@ class LessonPlan extends Model
         'content',
         'assessment',
         'homework',
+        'is_template',
     ];
 
     protected function casts(): array
@@ -34,6 +35,7 @@ class LessonPlan extends Model
             'week_number'      => 'integer',
             'academic_year'    => 'integer',
             'duration_minutes' => 'integer',
+            'is_template'      => 'boolean',
         ];
     }
 
@@ -89,6 +91,22 @@ class LessonPlan extends Model
         return $query->orderBy('week_number')->orderBy('created_at');
     }
 
+    /**
+     * Only return template plans.
+     */
+    public function scopeTemplates($query)
+    {
+        return $query->where('is_template', true);
+    }
+
+    /**
+     * Only return regular (non-template) plans.
+     */
+    public function scopeNonTemplates($query)
+    {
+        return $query->where('is_template', false);
+    }
+
     // ──────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────
@@ -97,12 +115,14 @@ class LessonPlan extends Model
      * Duplicate this lesson plan as a new record (template reuse).
      * Returns the new unsaved model — caller decides when to save.
      */
-    public function duplicate(): static
-    {
+    public function duplicate(
+        ?int $toClassId = null,
+        bool $asTemplate = false,
+    ): static {
         return new static([
             'user_id'          => $this->user_id,
-            'class_id'         => $this->class_id,
-            'title'            => $this->title . ' (Copy)',
+            'class_id'         => $toClassId ?? $this->class_id,
+            'title'            => $asTemplate ? $this->title : $this->title . ' (Copy)',
             'subject'          => $this->subject,
             'topic'            => $this->topic,
             'term'             => $this->term,
@@ -114,6 +134,7 @@ class LessonPlan extends Model
             'content'          => $this->content,
             'assessment'       => $this->assessment,
             'homework'         => $this->homework,
+            'is_template'      => $asTemplate,
         ]);
     }
 

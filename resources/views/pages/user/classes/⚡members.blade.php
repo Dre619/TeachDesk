@@ -3,7 +3,9 @@
 use App\Actions\InviteMemberAction;
 use App\Models\ClassRoom;
 use App\Models\ClassRoomMember;
+use App\Models\ClassTransfer;
 use App\Models\User;
+use App\Notifications\ClassTransferRequestedNotification;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Rule;
@@ -45,6 +47,15 @@ new class extends Component
     // ──────────────────────────────────────────
 
     public ?int $removingMemberId = null;
+
+    // ──────────────────────────────────────────
+    // Transfer state
+    // ──────────────────────────────────────────
+
+    public bool   $showTransferModal  = false;
+    public bool   $showCancelModal    = false;
+    public string $transferEmail      = '';
+    public string $transferMessage    = '';
 
     // ──────────────────────────────────────────
     // Lifecycle
@@ -109,17 +120,6 @@ new class extends Component
         // Prevent inviting yourself
         if (strtolower($this->inviteEmail) === strtolower(Auth::user()->email)) {
             $this->addError('inviteEmail', 'You cannot invite yourself.');
-            return;
-        }
-
-        // Prevent duplicate pending/accepted invite for same subject
-        $exists = ClassRoomMember::where('class_id', $this->classId)
-            ->where('subject', $this->inviteSubject)
-            ->whereIn('status', ['pending', 'accepted'])
-            ->exists();
-
-        if ($exists) {
-            $this->addError('inviteSubject', 'A teacher for this subject has already been invited or accepted.');
             return;
         }
 
@@ -206,6 +206,88 @@ new class extends Component
 
         $this->showRemoveModal  = false;
         $this->removingMemberId = null;
+    }
+
+    // ──────────────────────────────────────────
+    // Transfer
+    // ──────────────────────────────────────────
+
+    #[Computed]
+    public function pendingTransfer(): ?ClassTransfer
+    {
+        return ClassTransfer::forClass($this->classId)
+            ->pending()
+            ->with('toUser')
+            ->first();
+    }
+
+    public function openTransferModal(): void
+    {
+        $this->transferEmail   = '';
+        $this->transferMessage = '';
+        $this->resetValidation();
+        $this->showTransferModal = true;
+    }
+
+    public function sendTransfer(): void
+    {
+        $this->validate([
+            'transferEmail'   => 'required|email|max:255',
+            'transferMessage' => 'nullable|string|max:500',
+        ]);
+
+        if (strtolower($this->transferEmail) === strtolower(Auth::user()->email)) {
+            $this->addError('transferEmail', 'You cannot transfer to yourself.');
+            return;
+        }
+
+        $recipient = User::where('email', strtolower(trim($this->transferEmail)))->first();
+        if (! $recipient) {
+            $this->addError('transferEmail', 'No TeachDesk account found for this email address.');
+            return;
+        }
+
+        // Cancel any existing pending transfer for this class before creating a new one
+        ClassTransfer::forClass($this->classId)->pending()->update([
+            'status' => 'cancelled',
+            'token'  => null,
+        ]);
+
+        $transfer = ClassTransfer::create([
+            'class_id'     => $this->classId,
+            'from_user_id' => Auth::id(),
+            'to_user_id'   => $recipient->id,
+            'status'       => 'pending',
+            'message'      => $this->transferMessage ?: null,
+            'token'        => ClassTransfer::generateToken(),
+        ]);
+
+        $recipient->notify(new ClassTransferRequestedNotification(
+            $transfer->load(['classroom', 'fromUser'])
+        ));
+
+        $this->showTransferModal = false;
+        unset($this->pendingTransfer);
+
+        $this->notification()->success(
+            title:       'Transfer request sent!',
+            description: "{$recipient->name} has been notified by email and must approve before the transfer completes.",
+        );
+    }
+
+    public function cancelTransfer(): void
+    {
+        ClassTransfer::forClass($this->classId)
+            ->pending()
+            ->update(['status' => 'cancelled', 'token' => null]);
+
+        unset($this->pendingTransfer);
+        $this->showCancelModal = false;
+
+        $this->notification()->warning(
+            title:       'Transfer cancelled',
+            description: 'The transfer request has been withdrawn.',
+        );
     }
 };
 ?>
@@ -413,6 +495,53 @@ new class extends Component
             </div>
         @endif
 
+        {{-- ══════════════════════════════════════════════════════════
+             TRANSFER CLASS OWNERSHIP
+        ══════════════════════════════════════════════════════════ --}}
+        <div class="border border-red-200 rounded-xl bg-red-50/50 p-5 space-y-4">
+            <div class="flex items-start gap-3">
+                <div class="shrink-0 w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center">
+                    <x-icon name="arrow-right-on-rectangle" class="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                    <p class="font-semibold text-red-800">Transfer Class Ownership</p>
+                    <p class="text-sm text-red-600 mt-0.5">
+                        Transfer this class to another teacher. They must approve before the transfer completes.
+                        Your assessment records will be preserved in the class history.
+                    </p>
+                </div>
+            </div>
+
+            @if ($this->pendingTransfer)
+                {{-- Pending transfer banner --}}
+                <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+                    <div class="flex items-center gap-2.5 text-sm">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+                        <span class="text-amber-800">
+                            Awaiting approval from
+                            <strong>{{ $this->pendingTransfer->toUser->name }}</strong>
+                            ({{ $this->pendingTransfer->toUser->email }})
+                        </span>
+                        <span class="text-amber-500 text-xs">· sent {{ $this->pendingTransfer->created_at->diffForHumans() }}</span>
+                    </div>
+                    <x-button
+                        wire:click="$set('showCancelModal', true)"
+                        label="Cancel Request"
+                        flat xs
+                        class="text-red-600 shrink-0"
+                    />
+                </div>
+            @else
+                <x-button
+                    wire:click="openTransferModal"
+                    icon="arrow-right-on-rectangle"
+                    label="Transfer This Class"
+                    class="border border-red-300 text-red-700 bg-white hover:bg-red-50"
+                    flat
+                />
+            @endif
+        </div>
+
     </div>{{-- /container --}}
 
 
@@ -522,6 +651,105 @@ new class extends Component
                         label="Yes, Remove"
                         red
                         spinner="removeMember"
+                    />
+                </div>
+            </x-slot>
+        </x-card>
+    </x-modal>
+
+
+    {{-- ══════════════════════════════════════════════════════════
+         TRANSFER MODAL
+    ══════════════════════════════════════════════════════════ --}}
+    <x-modal wire:model.live="showTransferModal" title="Transfer Class Ownership" blur persistent width="xl">
+        <x-card class="relative">
+            <div class="space-y-5 p-1">
+
+                <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-3">
+                    <x-icon name="exclamation-triangle" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <p class="text-sm text-amber-800 leading-relaxed">
+                        The receiving teacher must <strong>approve</strong> before ownership transfers.
+                        Until they do, you remain in control. You can cancel at any time.
+                    </p>
+                </div>
+
+                <x-input
+                    wire:model="transferEmail"
+                    label="Receiving Teacher's Email"
+                    placeholder="colleague@school.edu"
+                    type="email"
+                    icon="envelope"
+                    :error="$errors->first('transferEmail')"
+                />
+
+                <x-input
+                    wire:model="transferMessage"
+                    label="Message (optional)"
+                    placeholder="e.g. I'm moving to another school at end of term…"
+                    :error="$errors->first('transferMessage')"
+                />
+
+                @if ($transferEmail && !$errors->has('transferEmail'))
+                    <div class="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-600">
+                        <p class="font-medium text-slate-700 mb-1">Transfer preview</p>
+                        <p>
+                            <span class="font-semibold text-indigo-700">{{ $transferEmail }}</span>
+                            will receive a request to take ownership of
+                            <span class="font-semibold">{{ $this->classroom->name }}</span>.
+                            They must accept via email link before anything changes.
+                        </p>
+                    </div>
+                @endif
+
+            </div>
+
+            <x-slot name="footer">
+                <div class="flex justify-end gap-3">
+                    <x-button wire:click="$set('showTransferModal', false)" label="Cancel" flat />
+                    <x-button
+                        wire:click="sendTransfer"
+                        wire:loading.attr="disabled"
+                        wire:target="sendTransfer"
+                        icon="paper-airplane"
+                        label="Send Transfer Request"
+                        class="bg-red-600 hover:bg-red-700 text-white"
+                        spinner="sendTransfer"
+                    />
+                </div>
+            </x-slot>
+        </x-card>
+    </x-modal>
+
+
+    {{-- ══════════════════════════════════════════════════════════
+         CANCEL TRANSFER MODAL
+    ══════════════════════════════════════════════════════════ --}}
+    <x-modal wire:model.live="showCancelModal" title="Cancel Transfer Request" blur width="lg">
+        <x-card class="relative">
+            <div class="flex items-start gap-4 p-1">
+                <div class="shrink-0 flex items-center justify-center w-12 h-12 rounded-full bg-amber-50">
+                    <x-icon name="x-circle" class="w-6 h-6 text-amber-500" />
+                </div>
+                <div>
+                    <p class="text-slate-700 font-medium">Cancel this transfer request?</p>
+                    <p class="text-slate-500 text-sm mt-1">
+                        The pending request to
+                        <strong>{{ $this->pendingTransfer?->toUser->name }}</strong>
+                        will be withdrawn. You can send a new one at any time.
+                    </p>
+                </div>
+            </div>
+
+            <x-slot name="footer">
+                <div class="flex justify-end gap-3">
+                    <x-button wire:click="$set('showCancelModal', false)" label="Keep Request" flat />
+                    <x-button
+                        wire:click="cancelTransfer"
+                        wire:loading.attr="disabled"
+                        wire:target="cancelTransfer"
+                        label="Yes, Cancel It"
+                        warning
+                        spinner="cancelTransfer"
                     />
                 </div>
             </x-slot>

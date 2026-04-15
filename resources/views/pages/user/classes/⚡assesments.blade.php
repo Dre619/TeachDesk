@@ -40,6 +40,7 @@ new class extends Component
     public int    $entryYear;
     public string $entryType     = 'test';
     public string $entryMaxScore = '100';
+    public string $entrySubject  = '';
 
     /**
      * [ student_id => ['score' => '', 'remarks' => '', 'existing_id' => null] ]
@@ -207,6 +208,21 @@ new class extends Component
         return array_values(array_unique($types));
     }
 
+    /**
+     * The subjects the current user is allowed to enter marks for.
+     * Form teacher → their class subject only.
+     * Subject teacher → all their assigned subjects (supports multi-subject & co-teaching).
+     *
+     * @return string[]
+     */
+    #[Computed]
+    public function entrySubjects(): array
+    {
+        return $this->isFormTeacher()
+            ? [$this->classroom->subject]
+            : $this->mySubjects;
+    }
+
     // ──────────────────────────────────────────
     // Bulk Entry Modal
     // ──────────────────────────────────────────
@@ -215,6 +231,12 @@ new class extends Component
     {
         $this->entryErrors = [];
         $this->entryRows   = [];
+
+        // Auto-select subject: keep current selection if still valid, otherwise pick the first option.
+        $subjects = $this->entrySubjects;
+        if (empty($this->entrySubject) || ! in_array($this->entrySubject, $subjects, true)) {
+            $this->entrySubject = $subjects[0] ?? $this->classroom->subject;
+        }
 
         foreach ($this->students as $student) {
             $this->entryRows[$student->id] = [
@@ -237,6 +259,7 @@ new class extends Component
     {
         $existing = Assessment::where('user_id', Auth::id())
             ->forClass($this->classId)
+            ->where('subject', $this->entrySubject)
             ->where('term', $this->entryTerm)
             ->where('academic_year', $this->entryYear)
             ->where('type', $this->entryType)
@@ -290,7 +313,7 @@ new class extends Component
                 'student_id'    => $studentId,
                 'class_id'      => $this->classId,
                 'user_id'       => Auth::id(),
-                'subject'       => $this->classroom->members->where('user_id',auth()->id())->where('status','accepted')->first()->subject ?? $this->classroom->subject,
+                'subject'       => $this->entrySubject,
                 'term'          => $this->entryTerm,
                 'academic_year' => $this->entryYear,
                 'type'          => $this->entryType,
@@ -306,6 +329,7 @@ new class extends Component
                 // Update so a second save within the same session updates rather than duplicates
                 $this->entryRows[$studentId]['existing_id'] = Assessment::where('student_id', $studentId)
                     ->where('class_id', $this->classId)
+                    ->where('subject', $this->entrySubject)
                     ->where('term', $this->entryTerm)
                     ->where('academic_year', $this->entryYear)
                     ->where('type', $this->entryType)
@@ -459,7 +483,7 @@ new class extends Component
 
     private function bustCache(): void
     {
-        unset($this->assessments, $this->gradebook, $this->gradebookTypes);
+        unset($this->assessments, $this->gradebook, $this->gradebookTypes, $this->entrySubjects);
     }
 };
 ?>
@@ -479,7 +503,7 @@ new class extends Component
                 <div>
                     <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Assessments</h1>
                     <p class="text-sm text-slate-500 mt-0.5">
-                        <span class="font-medium text-indigo-600">{{ $this->classroom->members->where('user_id',auth()->id())->where('status','accepted')->first()->subject ?? $this->classroom->subject }}</span>
+                        <span class="font-medium text-indigo-600">{{ implode(', ', $this->entrySubjects) }}</span>
                         &middot; {{ $this->assessments->count() }} <!--{{ Str::plural('record', $this->assessments->count()) }}--->
                     </p>
                 </div>
@@ -830,10 +854,24 @@ new class extends Component
                 />
             </div>
 
-            {{-- Subject badge --}}
+            {{-- Subject selector / badge --}}
             <div class="mt-3 flex items-center gap-2 text-xs text-slate-500">
                 <x-icon name="academic-cap" class="w-4 h-4 text-indigo-400" />
-                Subject: <span class="font-semibold text-indigo-600">{{$this->classroom->members->where('user_id',auth()->id())->where('status','accepted')->first()->subject ?? $this->classroom->subject }}</span>
+                Subject:
+                @if (count($this->entrySubjects) > 1)
+                    {{-- Multi-subject teacher: let them pick which subject this sheet is for --}}
+                    <select
+                        wire:model.live="entrySubject"
+                        wire:change="syncExistingScores"
+                        class="text-xs font-semibold text-indigo-600 border-0 border-b border-indigo-300 bg-transparent focus:outline-none focus:ring-0 cursor-pointer"
+                    >
+                        @foreach ($this->entrySubjects as $subj)
+                            <option value="{{ $subj }}">{{ $subj }}</option>
+                        @endforeach
+                    </select>
+                @else
+                    <span class="font-semibold text-indigo-600">{{ $this->entrySubjects[0] ?? $this->classroom->subject }}</span>
+                @endif
                 &middot; Class: <span class="font-semibold text-slate-700">{{ $this->classroom->name }}</span>
             </div>
         </div>

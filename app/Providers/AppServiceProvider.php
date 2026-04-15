@@ -2,9 +2,13 @@
 
 namespace App\Providers;
 
+use App\Mail\WelcomeTeacher;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -24,6 +28,17 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->registerListeners();
+    }
+
+    /**
+     * Register event listeners.
+     */
+    protected function registerListeners(): void
+    {
+        Event::listen(Registered::class, function (Registered $event) {
+            Mail::to($event->user->email)->queue(new WelcomeTeacher($event->user));
+        });
     }
 
     /**

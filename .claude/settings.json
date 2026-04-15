@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls -ltr /d/CloudOne/TeachDesk/database/migrations/*.php)"
+      "Bash(ls -ltr /d/CloudOne/TeachDesk/database/migrations/*.php)",
+      "Bash(grep -n \"^?>$\" d:/CloudOne/TeachDesk/resources/views/pages/admin/⚡users.blade.php)",
+      "Bash(grep -n \"^?>$\" \"d:/CloudOne/TeachDesk/resources/views/pages/admin/⚡subscriptions.blade.php\")",
+      "Bash(grep -n \"^?>$\" \"d:/CloudOne/TeachDesk/resources/views/pages/user/classes/⚡lesson-plans.blade.php\")",
+      "Bash(grep -n \"^?>$\" \"d:/CloudOne/TeachDesk/resources/views/pages/user/classes/⚡assesments.blade.php\")"
     ]
   }
 }

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class Report extends Model
 {
@@ -23,6 +24,8 @@ class Report extends Model
         'conduct_grade',
         'form_teacher_comment',
         'head_teacher_comment',
+        'share_token',
+        'parent_email',
     ];
 
     protected function casts(): array
@@ -160,5 +163,29 @@ class Report extends Model
     public function getLabelAttribute(): string
     {
         return "Term {$this->term} · {$this->academic_year}";
+    }
+
+    /**
+     * Generate (or return existing) a share token and persist it.
+     */
+    public function generateShareToken(): string
+    {
+        if (! $this->share_token) {
+            $this->update(['share_token' => Str::random(48)]);
+        }
+
+        return $this->share_token;
+    }
+
+    /**
+     * The public URL parents can open to view the report card.
+     */
+    public function getShareUrlAttribute(): ?string
+    {
+        if (! $this->share_token) {
+            return null;
+        }
+
+        return route('report.shared', $this->share_token);
     }
 }
