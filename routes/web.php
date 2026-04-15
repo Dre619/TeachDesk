@@ -148,7 +148,7 @@ Route::middleware(['auth', 'verified', 'super_admin'])->group(function () {
     Route::livewire('admin/subscriptions', 'pages::admin.subscriptions')->name('admin.subscriptions');
     Route::livewire('admin/payments', 'pages::admin.payments')->name('admin.payments');
 
-    // User impersonation — specific route must come before wildcard
+    // User impersonation — constrained to numeric IDs so /stop never matches
     Route::post('/admin/impersonate/{user}', function (\App\Models\User $user) {
         abort_if($user->role === 'super_admin', 403, 'Cannot impersonate another admin.');
 
@@ -159,7 +159,7 @@ Route::middleware(['auth', 'verified', 'super_admin'])->group(function () {
         ]);
 
         return redirect()->route('dashboard');
-    })->name('admin.impersonate.start');
+    })->whereNumber('user')->name('admin.impersonate.start');
 });
 
 // Stop impersonation — just remove the overlay; the admin's original session is untouched
