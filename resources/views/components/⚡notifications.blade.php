@@ -160,7 +160,7 @@ new class extends Component
 {{-- resources/views/livewire/notification-bell.blade.php --}}
 {{-- Drop this component into your app layout nav bar:  <livewire:notification-bell /> --}}
 
-<div class="relative" wire:poll.30s x-data @click.outside="$wire.close()">
+<div class="relative" wire:poll.60s x-data @click.outside="$wire.close()">
 
     {{-- ── Bell button ─────────────────────────────────── --}}
     <button
