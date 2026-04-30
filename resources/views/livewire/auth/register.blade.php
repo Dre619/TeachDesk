@@ -76,7 +76,7 @@
                         />
                     </div>
                     <div class="flex items-end">
-                        <flux:button type="button" @click="search" :loading="searching">
+                        <flux:button type="button" @click="search">
                             <span x-show="!searching">Find</span>
                             <span x-show="searching">…</span>
                         </flux:button>
